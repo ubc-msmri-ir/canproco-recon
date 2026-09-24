@@ -18,3 +18,14 @@ class ReconSettings:
     mr_filetypes: tuple[str, ...] = field(default_factory=lambda: MR_FILETYPES)
     # Max number of other `files` rows to try when the primary file has no date.
     max_fallback_files: int = 50
+
+@dataclass
+class QCReconSettings:
+    mysql_url: str
+    output_dir: Path
+    log_dir: Path
+
+@dataclass
+class AppSettings:
+    recon: ReconSettings
+    qc_recon: QCReconSettings
