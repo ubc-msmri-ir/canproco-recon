@@ -3,7 +3,7 @@ from typing import Optional
 
 from sqlalchemy import select, tuple_
 
-from domain.mysql.models import File, Scan, Subject, Sequence
+from domain.mysql.models import File, Scan, Subject, Sequence, Upload
 
 
 class FileRepository:
@@ -156,11 +156,13 @@ class QCRepository:
             Sequence.QC_artifacts.label("sequence_qc_artifact"),
             Sequence.QC_comments.label("sequence_qc_comments")
         ).join(
+            Upload, Sequence.data_upload_id == Upload.id
+        ).join(
             Scan, Sequence.scan_id == Scan.id
         ).join(
             Subject, Scan.subject_id == Subject.id
         ).where(
-            Sequence.site_id.in_(self.canproco_research_site_ids)
+            Upload.site_id.in_(self.canproco_research_site_ids)
         )
 
         with self._session_factory() as session:
