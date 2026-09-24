@@ -92,6 +92,7 @@ class Sequence(Base):
         "Pending QC",
         "Pending PostProcessing",
         "Accepted",
+        "Caution",
         "Rejected",
         "Error",
         "ErrorCategorize",
