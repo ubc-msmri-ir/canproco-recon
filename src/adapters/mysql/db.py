@@ -136,7 +136,8 @@ class ScanRepository:
 class QCRepository:
     def __init__(self, session_factory):
         self._session_factory = session_factory
-        self.site_ids = [25, 26, 27, 28, 29] # CanProCo Research Site Id
+        self.canproco_research_site_ids = [25, 26, 27, 28, 29] # CanProCo Research Site Id
+        self.canproco_clinical_site_ids = [1, 2, 3, 4, 5] # CanProCo Clinical Site Id
         
 
     def get_canproco_research_qc(
@@ -159,7 +160,7 @@ class QCRepository:
         ).join(
             Subject, Scan.subject_id == Subject.id
         ).where(
-            Sequence.site_id.in_(self.site_ids)
+            Sequence.site_id.in_(self.canproco_research_site_ids)
         )
 
         with self._session_factory() as session:
