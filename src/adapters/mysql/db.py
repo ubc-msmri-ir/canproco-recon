@@ -3,7 +3,7 @@ from typing import Optional
 
 from sqlalchemy import select, tuple_
 
-from domain.mysql.models import File, Scan, Subject
+from domain.mysql.models import File, Scan, Subject, Sequence
 
 
 class FileRepository:
@@ -132,3 +132,37 @@ class ScanRepository:
                 }
             )
         return result
+
+class QCRepository:
+    def __init__(self, session_factory):
+        self._session_factory = session_factory
+        self.site_ids = [25, 26, 27, 28, 29] # CanProCo Research Site Id
+        
+
+    def get_canproco_research_qc(
+            self
+    ) -> list[dict]:
+        """
+        Fetch all rows from the Sequences table join with the Scans table and join with the Subjects table.
+        Returns a list of dictionaries containing sequence, scan, and subject information.
+        """
+        statement = select(
+            Sequence.id.label("sequence_id"),
+            Sequence.series_description.label("sequence_name"),
+            Scan.timepoint.label("timepoint"),
+            Subject.name.label("subject_name"),
+            Sequence.status.label("sequence_status"),
+            Sequence.QC_artifacts.label("sequence_qc_artifact"),
+            Sequence.QC_comments.label("sequence_qc_comments")
+        ).join(
+            Scan, Sequence.scan_id == Scan.id
+        ).join(
+            Subject, Scan.subject_id == Subject.id
+        ).where(
+            Sequence.site_id.in_(self.site_ids)
+        )
+
+        with self._session_factory() as session:
+            rows: list[dict] = session.execute(statement).mappings().all()
+
+        return rows
