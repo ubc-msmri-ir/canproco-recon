@@ -36,7 +36,7 @@ def configure_logging(log_dir: Path, timestamp: str) -> Path:
 
 
 def main(input_csv: Path) -> None:
-    settings = EnvConfigAdapter().load()
+    settings = EnvConfigAdapter().load().recon
 
     # One timestamp for the run: shared by the log file and the output filenames.
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
