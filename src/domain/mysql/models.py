@@ -11,6 +11,7 @@ from sqlalchemy import (
     Integer,
     DECIMAL,
     Date,
+    Text,
 )
 
 
@@ -101,6 +102,7 @@ class Sequence(Base):
         name="sequence_status_enum",
     ), nullable=False, server_default="Pending Conversion")
     QC_artifacts = Column(SmallInteger, nullable=True)
+    QC_artifact_types = Column(Text, nullable=True)
     contrast_bolus_agent = Column(String(20), nullable=True)
     random_forest_predicted_sequence_type = Column(BigInteger(), ForeignKey("sequence_types.id"), nullable=True, index=True)
     QC_external_comments = Column(String(3000), nullable=True)
