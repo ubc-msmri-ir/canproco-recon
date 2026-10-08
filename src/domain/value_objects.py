@@ -14,7 +14,7 @@ OTHER_ARTIFACT_CODE = "8"
 def normalize_qc_artifact_type(value) -> str | None:
     """Turn a spreadsheet entry into the `sequences.QC_artifact_types` format.
 
-    e.g. "8" -> '["8"]', " 2, 4 " -> '["2","4"]', "*remove QC" -> '["8"]'.
+    e.g. "8" -> '["8"]', " 4, 2 " -> '["2","4"]', "*remove QC" -> '["8"]'.
     Returns None for an empty entry; raises ValueError for an unknown numeric code.
     """
     if value is None or (not isinstance(value, str) and pd.isna(value)):
@@ -39,4 +39,4 @@ def normalize_qc_artifact_type(value) -> str | None:
 
     if not codes:
         return None
-    return json.dumps(codes, separators=(",", ":"))
+    return json.dumps(sorted(codes, key=int), separators=(",", ":"))

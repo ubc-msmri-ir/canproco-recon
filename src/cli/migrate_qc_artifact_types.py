@@ -70,9 +70,9 @@ def main(input_csv: Path | None, rollback: Path | None, dry_run: bool) -> int:
 
     logger.info(
         "Summary: rows_read=%d rows_skipped=%d sequences_targeted=%d sequences_changed=%d "
-        "sequences_updated=%d verified_ok=%d verified_failed=%d dry_run=%s",
+        "qc_artifacts_flag_changes=%d sequences_updated=%d verified_ok=%d verified_failed=%d dry_run=%s",
         summary.rows_read, summary.rows_skipped, summary.sequences_targeted, summary.sequences_changed,
-        summary.sequences_updated, summary.verified_ok, summary.verified_failed, summary.dry_run,
+        summary.qc_artifacts_flag_changes, summary.sequences_updated, summary.verified_ok, summary.verified_failed, summary.dry_run,
     )
     for name, path in summary.files.items():
         logger.info("%s: %s", name, path)

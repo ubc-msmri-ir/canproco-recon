@@ -27,6 +27,7 @@ class MigrationSummary:
     rows_skipped: int = 0
     sequences_targeted: int = 0
     sequences_changed: int = 0
+    qc_artifacts_flag_changes: int = 0
     sequences_updated: int = 0
     verified_ok: int = 0
     verified_failed: int = 0
@@ -56,6 +57,7 @@ class QCArtifactTypeMigrationService:
         logger.info("Step 2/5: building update plan")
         groups: list[tuple[str, list[int], State]] = []
         expected: dict[int, State] = {}
+        source_row: dict[int, tuple[str, str | None]] = {}  # id -> (QC_comments, Clinical/Research)
         for row in lookup_df.itertuples(index=False):
             label = f"{row.qc_comments!r} ({row.category})"
             if row.qc_artifact_type is None:
@@ -70,6 +72,7 @@ class QCArtifactTypeMigrationService:
                     raise ValueError(
                         f"Sequence {sequence_id} is assigned both {previous[1]} and {state[1]}; nothing was changed"
                     )
+                source_row.setdefault(sequence_id, (row.qc_comments, row.category))
             groups.append((label, ids, state))
         summary.sequences_targeted = len(expected)
         logger.info("%d update groups covering %d sequences", len(groups), len(expected))
@@ -85,6 +88,7 @@ class QCArtifactTypeMigrationService:
             "%d of %d sequences will change (the rest already hold the target value)",
             summary.sequences_changed, summary.sequences_targeted,
         )
+        self._save_qc_artifacts_flag_changes(expected, current, source_row, summary)
 
         if dry_run:
             for label, ids, state in groups:
@@ -183,6 +187,44 @@ class QCArtifactTypeMigrationService:
         else:
             logger.info("Verification passed for all %d sequences; see %s", len(df), path)
 
+    def _save_qc_artifacts_flag_changes(
+        self,
+        expected: dict[int, State],
+        current: dict[int, dict],
+        source_row: dict[int, tuple[str, str | None]],
+        summary: MigrationSummary,
+    ) -> None:
+        """Log the targeted sequences whose QC_artifacts is currently 0 or NULL (set to 1 by the migration)."""
+        records = []
+        for sequence_id, (new_artifacts, new_types) in sorted(expected.items()):
+            state = current[sequence_id]
+            if state["QC_artifacts"] in (0, None):
+                qc_comments, category = source_row[sequence_id]
+                records.append({
+                    "id": sequence_id,
+                    "QC_comments": qc_comments,
+                    "Clinical/Research": category,
+                    "current_QC_artifacts": state["QC_artifacts"],
+                    "new_QC_artifacts": new_artifacts,
+                    "current_QC_artifact_types": state["QC_artifact_types"],
+                    "new_QC_artifact_types": new_types,
+                })
+        df = pd.DataFrame(
+            records,
+            columns=["id", "QC_comments", "Clinical/Research", "current_QC_artifacts", "new_QC_artifacts",
+                     "current_QC_artifact_types", "new_QC_artifact_types"],
+            dtype=object,
+        )
+        path = self._settings.output_dir / f"qc_artifacts_flag_changes_{self._timestamp}.csv"
+        df.to_csv(path, index=False, na_rep=NULL_MARKER)
+        summary.files["qc_artifacts_flag_changes"] = path
+        summary.qc_artifacts_flag_changes = len(df)
+        logger.info(
+            "%d sequences have QC_artifacts 0 (%d) or NULL (%d) and will be set to %d; see %s",
+            len(df), int((df["current_QC_artifacts"] == 0).sum()), int(df["current_QC_artifacts"].isna().sum()),
+            HAS_ARTIFACTS, path,
+        )
+
     def _save_state(self, sequence_ids: list[int], name: str, summary: MigrationSummary) -> dict[int, dict]:
         states = self._sequence_repository.get_qc_artifact_states(sequence_ids)
         df = pd.DataFrame(
@@ -225,8 +267,16 @@ class QCArtifactTypeMigrationService:
             return True
         if act_types is None or exp_types is None:
             return False
-        # Compare as JSON so '["2", "4"]' matches '["2","4"]'.
+        # Compare as sorted JSON lists so '["4", "2"]' matches '["2","4"]'.
         try:
-            return json.loads(act_types) == json.loads(exp_types)
+            return QCArtifactTypeMigrationService._sorted_codes(act_types) == \
+                QCArtifactTypeMigrationService._sorted_codes(exp_types)
         except json.JSONDecodeError:
             return False
+
+    @staticmethod
+    def _sorted_codes(types: str):
+        codes = json.loads(types)
+        if isinstance(codes, list):
+            return sorted(str(code) for code in codes)
+        return codes
