@@ -1,6 +1,7 @@
 import pandas as pd
+from typing import Any
 
-from sqlalchemy import select, tuple_
+from sqlalchemy import select, tuple_, update
 
 from domain.mysql.models import File, Scan, Subject, Sequence, Upload, SequenceType
 
@@ -8,6 +9,9 @@ from domain.mysql.models import File, Scan, Subject, Sequence, Upload, SequenceT
 class SequenceRepository:
     def __init__(self, session_factory):
         self._session_factory = session_factory
+
+    def session(self):
+        return self._session_factory()
 
     def get_canproco_qc_comment_summary_by_site_category(
         self,
@@ -27,7 +31,6 @@ class SequenceRepository:
         if not site_category:
             return pd.DataFrame(columns=columns)
 
-        print(list(site_category))
         statement = (
             select(
                 Sequence.id.label("sequence_id"),
@@ -60,6 +63,53 @@ class SequenceRepository:
         return summary.sort_values(
             ["count", "QC_comments"], ascending=[False, True], ignore_index=True
         )[columns]
+
+    def get_qc_artifact_states(
+        self,
+        sequence_ids: list[int],
+        chunk_size: int = 1000,
+    ) -> dict[int, dict[str, Any]]:
+        """Return ``id`` -> ``{QC_artifacts, QC_artifact_types}`` for existing sequences."""
+        states: dict[int, dict[str, Any]] = {}
+        with self._session_factory() as session:
+            for start in range(0, len(sequence_ids), chunk_size):
+                chunk = sequence_ids[start:start + chunk_size]
+                statement = select(
+                    Sequence.id,
+                    Sequence.QC_artifacts,
+                    Sequence.QC_artifact_types,
+                ).where(Sequence.id.in_(chunk))
+                for row in session.execute(statement).mappings():
+                    states[row["id"]] = {
+                        "QC_artifacts": row["QC_artifacts"],
+                        "QC_artifact_types": row["QC_artifact_types"],
+                    }
+        return states
+
+    def update_qc_artifacts(
+        self,
+        session,
+        sequence_ids: list[int],
+        qc_artifacts: int | None,
+        qc_artifact_types: str | None,
+        chunk_size: int = 1000,
+    ) -> int:
+        """Set QC_artifacts / QC_artifact_types for ``sequence_ids``.
+
+        Runs inside the caller's session; the caller commits or rolls back.
+        Returns the number of matched rows.
+        """
+        matched = 0
+        for start in range(0, len(sequence_ids), chunk_size):
+            chunk = sequence_ids[start:start + chunk_size]
+            statement = (
+                update(Sequence)
+                .where(Sequence.id.in_(chunk))
+                .values(QC_artifacts=qc_artifacts, QC_artifact_types=qc_artifact_types)
+                .execution_options(synchronize_session=False)
+            )
+            matched += session.execute(statement).rowcount
+        return matched
 
 class FileRepository:
     def __init__(self, session_factory):
