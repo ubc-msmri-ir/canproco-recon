@@ -1,10 +1,115 @@
-from datetime import date
-from typing import Optional
+import pandas as pd
+from typing import Any
 
-from sqlalchemy import select, tuple_
+from sqlalchemy import select, tuple_, update
 
 from domain.mysql.models import File, Scan, Subject, Sequence, Upload, SequenceType
 
+
+class SequenceRepository:
+    def __init__(self, session_factory):
+        self._session_factory = session_factory
+
+    def session(self):
+        return self._session_factory()
+
+    def get_canproco_qc_comment_summary_by_site_category(
+        self,
+        clinical_site_ids: list[int],
+        research_site_ids: list[int],
+        include_null_comments: bool = False,
+    ) -> pd.DataFrame:
+        """Return one row per (QC comment, Clinical/Research) with its sequence IDs and count."""
+        columns = ["QC_comments", "Clinical/Research", "sequence_ids", "count"]
+
+        overlap = set(clinical_site_ids) & set(research_site_ids)
+        if overlap:
+            raise ValueError(f"Site IDs found in both clinical and research lists: {sorted(overlap)}")
+
+        site_category = {sid: "Clinical" for sid in clinical_site_ids}
+        site_category.update({sid: "Research" for sid in research_site_ids})
+        if not site_category:
+            return pd.DataFrame(columns=columns)
+
+        statement = (
+            select(
+                Sequence.id.label("sequence_id"),
+                Upload.site_id,
+                Sequence.QC_comments,
+            ).join(Upload, Sequence.data_upload_id == Upload.id
+            ).where(Upload.site_id.in_(list(site_category))
+            ).order_by(Sequence.id)
+        )
+        if not include_null_comments:
+            statement = statement.where(
+                Sequence.QC_comments.is_not(None),
+                Sequence.QC_comments != "",
+            )
+
+        with self._session_factory() as session:
+            rows = session.execute(statement).mappings().all()
+
+        if not rows:
+           raise ValueError("No rows found for the given site IDs.")
+
+        df = pd.DataFrame([dict(row) for row in rows])
+        df["Clinical/Research"] = df["site_id"].map(site_category)
+
+        summary = (
+            df.groupby(["QC_comments", "Clinical/Research"], dropna=False, sort=False)["sequence_id"]
+            .agg(sequence_ids=list, count="size")
+            .reset_index()
+        )
+        return summary.sort_values(
+            ["count", "QC_comments"], ascending=[False, True], ignore_index=True
+        )[columns]
+
+    def get_qc_artifact_states(
+        self,
+        sequence_ids: list[int],
+        chunk_size: int = 1000,
+    ) -> dict[int, dict[str, Any]]:
+        """Return ``id`` -> ``{QC_artifacts, QC_artifact_types}`` for existing sequences."""
+        states: dict[int, dict[str, Any]] = {}
+        with self._session_factory() as session:
+            for start in range(0, len(sequence_ids), chunk_size):
+                chunk = sequence_ids[start:start + chunk_size]
+                statement = select(
+                    Sequence.id,
+                    Sequence.QC_artifacts,
+                    Sequence.QC_artifact_types,
+                ).where(Sequence.id.in_(chunk))
+                for row in session.execute(statement).mappings():
+                    states[row["id"]] = {
+                        "QC_artifacts": row["QC_artifacts"],
+                        "QC_artifact_types": row["QC_artifact_types"],
+                    }
+        return states
+
+    def update_qc_artifacts(
+        self,
+        session,
+        sequence_ids: list[int],
+        qc_artifacts: int | None,
+        qc_artifact_types: str | None,
+        chunk_size: int = 1000,
+    ) -> int:
+        """Set QC_artifacts / QC_artifact_types for ``sequence_ids``.
+
+        Runs inside the caller's session; the caller commits or rolls back.
+        Returns the number of matched rows.
+        """
+        matched = 0
+        for start in range(0, len(sequence_ids), chunk_size):
+            chunk = sequence_ids[start:start + chunk_size]
+            statement = (
+                update(Sequence)
+                .where(Sequence.id.in_(chunk))
+                .values(QC_artifacts=qc_artifacts, QC_artifact_types=qc_artifact_types)
+                .execution_options(synchronize_session=False)
+            )
+            matched += session.execute(statement).rowcount
+        return matched
 
 class FileRepository:
     def __init__(self, session_factory):
